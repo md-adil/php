@@ -1,7 +1,8 @@
 <?php
-class DB {
+class AdilDB {
 	public static $instance;
 	public static $connected;
+	public static $pdo;
 	private $table;
 	private $select;
 	private $queryLog;
@@ -14,30 +15,35 @@ class DB {
 	private $limit;
 	private $bindings = [];
 
-	private function __construct() {}
-
-	public static function create($table = null) {
-		if(!self::$instance) {
-			self::$instance = new self();
+	function __construct($pdo, $table = null) {
+		if(!$pdo) {
+			throw new Exception("Database is not connected yet. Please connect using db(array configs)", 503);
 		}
-		if(!$table) {
-			return self::$instance;
+		$this->conn = $pdo;
+		if($table) {
+			$this->table($table);
 		}
-		return self::$instance->table($table);
 	}
 
-	public function connect($config) {
-		if(DB::$connected) {
-			throw new Exception("Already Connected", 501);
-		}
+	
+	public static function connect($config) {
 		try {
-			$dsn = $config['driver'] . ':host=' . $config['host'] . ';dbname=' . $config['database'];
-			$this->conn = new PDO($dsn, $config['user'], $config['password']);
-			$this->conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-			DB::$connected = true;
-			return $this;
-			
+			$driver = $config['driver'];
+			switch ($driver) {
+				case 'sqlite':
+					$pdo = new PDO($driver . ':' . $config['database']);
+					break;
+				
+				case 'mysql':
+					$dsn = $driver . ':host=' . $config['host'] . ';dbname=' . $config['database'];
+					$pdo = new PDO($dsn, $config['user'], $config['password']);
+					# code...
+					break;
+			}
+			$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+			return $pdo;
 		} catch (Exception $e) {
+			header("Content-Type: application/json");
 			exit(json_encode([
 				'Message' => $e->getMessage(),
 				'Code' => $e->getCode(),
@@ -47,6 +53,7 @@ class DB {
 	}
 
 	public function __toString() {
+		header("Content-Type: application/json");
 		return json_encode($this->get());
 	}
 
@@ -57,6 +64,7 @@ class DB {
 	}
 
 	public function queryLog() {
+		header("Content-Type: application/json");
 		return json_encode($this->queryLog);
 	}
 
@@ -67,6 +75,14 @@ class DB {
 	/**
 	 * Executing query to files
 	 */
+
+	private function arr($array, $key, $default = null) {
+		if(isset($array[$key])) {
+			return $array[$key];
+		}
+		return $default;
+	}
+
 	private function execute() {
 		$props = ['conn', 'queryLog', 'instance', 'connected'];
 		$query = $this->prepare();
@@ -509,6 +525,19 @@ class DB {
 	}
 }
 
-function db($table = null) {
-	return DB::create($table);
+function db($arg = null, $table = null) {
+	switch (gettype($arg)) {
+		case 'array':
+			return AdilDB::$pdo = AdilDB::connect($arg);
+			break;
+
+		case 'object':
+			return new AdilDB($arg, $table);
+
+		case 'string':
+			return new AdilDB(AdilDB::$pdo, $arg);
+		default:
+			return new AdilDB(AdilDB::$pdo);
+			break;
+	}
 }
